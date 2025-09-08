@@ -1,215 +1,253 @@
-# utils.py
-# Fully fixed helper functions for Streamlit app
-
 import pandas as pd
 import numpy as np
-import streamlit as st
-import plotly.express as px
 import matplotlib.pyplot as plt
-import seaborn as sns
-from wordcloud import WordCloud
-from collections import Counter
+import networkx as nx
 
-sns.set_style("whitegrid")
-
-
-def is_statsmodels_installed():
+# ======================
+# ECHO CHAMBER ANALYSIS
+# ======================
+def analyze_echo_chambers(df):
+    user_diversity = df.groupby('user_id')['hashtags'].nunique() / df.groupby('user_id')['hashtags'].count()
+    diversity_stats = {
+        'mean': user_diversity.mean(),
+        'std': user_diversity.std(),
+        'min': user_diversity.min(),
+        'max': user_diversity.max()
+    }
+    # Modularity (basic version, as in notebook)
+    B = nx.Graph()
+    for _, row in df.iterrows():
+        user = f"user_{row['user_id']}"
+        tags = [tag.strip() for tag in str(row['hashtags']).split(',')]
+        for tag in tags:
+            B.add_edge(user, tag, weight=1)
+    # Project to user-user
+    users = [n for n in B.nodes() if n.startswith('user_')]
+    user_network = nx.Graph()
+    for user1 in users:
+        user1_tags = set(B[user1])
+        for user2 in users:
+            if user1 != user2:
+                user2_tags = set(B[user2])
+                overlap = len(user1_tags & user2_tags)
+                if overlap > 0:
+                    user_network.add_edge(user1, user2, weight=overlap)
+    modularity = None
     try:
-        import statsmodels  # noqa: F401
-        return True
-    except ImportError:
-        return False
-
-
-def load_data(uploaded_file):
-    """Load CSV and ensure unique column names."""
-    try:
-        df = pd.read_csv(uploaded_file)
+        from networkx.algorithms.community import greedy_modularity_communities, modularity
+        comms = list(greedy_modularity_communities(user_network))
+        modularity = modularity(user_network, comms) if comms else None
     except Exception:
-        df = pd.read_csv(uploaded_file, encoding="latin1")
+        pass
+    # Content homophily
+    user_category_entropy = []
+    for user, user_df in df.groupby('user_id'):
+        counts = user_df['category'].value_counts(normalize=True)
+        entropy = -sum([p * np.log(p) for p in counts if p > 0])
+        user_category_entropy.append(entropy)
+    avg_entropy = np.mean(user_category_entropy)
+    return {
+        'user_diversity': user_diversity,
+        'diversity_stats': diversity_stats,
+        'modularity': modularity,
+        'content_entropy': avg_entropy
+    }
 
-    # Make column names unique
-    cols = pd.Series(df.columns)
-    for dup in cols[cols.duplicated()].unique():
-        dup_idx = cols[cols == dup].index.tolist()
-        for i, idx in enumerate(dup_idx[1:], start=1):
-            cols[idx] = f"{dup}.{i}"
-    df.columns = cols
+# =====================
+# POLARIZATION ANALYSIS
+# =====================
+def analyze_polarization(df):
+    sentiment = df['sentiment'].dropna()
+    polarization_score = np.std(sentiment)
+    kurt = (np.mean((sentiment-np.mean(sentiment))**4) / (np.var(sentiment)**2)) - 3
+    topic_pol = df.groupby('hashtags')['sentiment'].std().sort_values(ascending=False)
+    return {
+        'polarization_score': polarization_score,
+        'kurtosis': kurt,
+        'topic_polarization': topic_pol
+    }
 
-    return df
+# ========================
+# ALGORITHMIC BIAS ANALYSIS
+# ========================
+def analyze_algorithmic_bias(df):
+    df['total_engagement'] = df['likes'] + df['comments'] + df['shares']
+    df['virality'] = (df['shares'] + df['comments']) / (df['likes'] + 1)
+    engagement_stats = df.groupby('category').agg({
+        'total_engagement': 'mean',
+        'virality': 'mean',
+        'post_id': 'count'
+    }).rename(columns={'post_id': 'post_count'})
+    harmful_mask = df['category'].isin(['Harmful', 'Misinformation'])
+    safe_mask = df['category'] == 'Safe'
+    harmful_eng = df[harmful_mask]['total_engagement'].sum()
+    safe_eng = df[safe_mask]['total_engagement'].sum()
+    harmful_ratio = len(df[harmful_mask]) / len(df)
+    engagement_ratio = harmful_eng / (harmful_eng + safe_eng) if (harmful_eng + safe_eng) else 0
+    bias_score = engagement_ratio / harmful_ratio if harmful_ratio > 0 else 1
+    harmful_vir = df[harmful_mask]['virality'].mean()
+    safe_vir = df[safe_mask]['virality'].mean()
+    virality_bias = harmful_vir / safe_vir if safe_vir else 1
+    return {
+        'engagement_stats': engagement_stats,
+        'bias_score': bias_score,
+        'virality_bias': virality_bias,
+        'virality_data': df.groupby('category')['virality'].mean()
+    }
 
+# ==============================
+# MISINFORMATION AMPLIFICATION
+# ==============================
+def analyze_misinformation(df):
+    df = df.copy()
+    df['timestamp'] = pd.to_datetime(df['timestamp'])
+    df = df.set_index('timestamp')
+    misinfo = df[df['category'] == 'Misinformation']
+    safe = df[df['category'] == 'Safe']
+    misinfo_hourly = misinfo.resample('H').size()
+    safe_hourly = safe.resample('H').size()
+    try:
+        amplification_ratio = misinfo_hourly.mean() / safe_hourly.mean() if safe_hourly.mean() > 0 else float('inf')
+    except ZeroDivisionError:
+        amplification_ratio = None
+    misinfo_eng = misinfo['total_engagement'].mean() if not misinfo.empty else 0
+    safe_eng = safe['total_engagement'].mean() if not safe.empty else 1
+    engagement_ratio = misinfo_eng / safe_eng if safe_eng else 1
+    users_posting_misinfo = misinfo['user_id'].nunique()
+    total_users = df['user_id'].nunique()
+    user_participation = users_posting_misinfo / total_users if total_users else None
+    return {
+        'amplification_ratio': amplification_ratio,
+        'engagement_ratio': engagement_ratio,
+        'user_participation': user_participation,
+        'misinfo_hourly': misinfo_hourly,
+        'safe_hourly': safe_hourly
+    }
 
-def show_overview(df):
-    st.subheader("Overview & Summary")
-    c1, c2, c3 = st.columns([1, 1, 1])
-    with c1:
-        st.metric("Rows", df.shape[0])
-    with c2:
-        st.metric("Columns", df.shape[1])
-    with c3:
-        st.metric("Missing cells", int(df.isnull().sum().sum()))
-
-    st.write("**Data types**")
-    dtypes = pd.DataFrame(df.dtypes, columns=["dtype"])
-    dtypes["non_null_count"] = df.notnull().sum()
-    st.dataframe(dtypes)
-
-    st.write("**Descriptive statistics (numerical)**")
-    num = df.select_dtypes(include=[np.number])
-    if not num.empty:
-        st.dataframe(num.describe().T)
+# ==================
+# NETWORK STRUCTURE
+# ==================
+def analyze_network_structure(df):
+    B = nx.Graph()
+    for _, row in df.iterrows():
+        user = f"user_{row['user_id']}"
+        tags = [tag.strip() for tag in str(row['hashtags']).split(',')]
+        for tag in tags:
+            B.add_edge(user, tag, weight=1)
+    users = [n for n in B.nodes() if n.startswith('user_')]
+    user_network = nx.Graph()
+    for user1 in users:
+        user1_tags = set(B[user1])
+        for user2 in users:
+            if user1 != user2:
+                user2_tags = set(B[user2])
+                overlap = len(user1_tags & user2_tags)
+                if overlap > 0:
+                    user_network.add_edge(user1, user2, weight=overlap)
+    if len(user_network.nodes()) > 0:
+        density = nx.density(user_network)
+        avg_clustering = nx.average_clustering(user_network)
+        avg_degree = np.mean([d for n, d in user_network.degree()])
+        return {
+            'density': density,
+            'avg_clustering': avg_clustering,
+            'avg_degree': avg_degree,
+            'network_graph': user_network
+        }
     else:
-        st.write("No numerical columns detected.")
+        return None
 
+# ===============
+# PLOTTING UTILS
+# ===============
+def plot_sentiment_distribution(df):
+    fig, ax = plt.subplots()
+    ax.hist(df['sentiment'], bins=30, alpha=0.7, edgecolor='black')
+    ax.set_title('Sentiment Distribution (Polarization)')
+    ax.set_xlabel('Sentiment Score')
+    ax.set_ylabel('Frequency')
+    ax.axvline(df['sentiment'].mean(), color='red', linestyle='--',
+               label=f'Mean: {df["sentiment"].mean():.2f}')
+    ax.legend()
+    return fig
 
-def show_missing(df):
-    st.subheader("Missing Values")
-    miss = df.isnull().sum()
-    miss = miss[miss > 0].sort_values(ascending=False)
-    if miss.empty:
-        st.write("No missing values detected.")
-        return
-    st.bar_chart(miss)
+def plot_engagement_by_category(df):
+    df['total_engagement'] = df['likes'] + df['comments'] + df['shares']
+    engagement_by_category = df.groupby('category')['total_engagement'].mean()
+    colors = ['red' if cat in ['Harmful', 'Misinformation'] else 'green' for cat in engagement_by_category.index]
+    fig, ax = plt.subplots()
+    ax.bar(engagement_by_category.index, engagement_by_category.values, color=colors, alpha=0.7)
+    ax.set_title('Average Engagement by Content Category')
+    ax.set_ylabel('Average Engagement')
+    ax.tick_params(axis='x', rotation=45)
+    return fig
 
-    st.write("Rows with missing values (top 10)")
-    st.dataframe(df[df.isnull().any(axis=1)].head(10))
+def plot_temporal_content_spread(df):
+    df = df.copy()
+    df['timestamp'] = pd.to_datetime(df['timestamp'])
+    hourly_data = df.groupby([df['timestamp'].dt.hour, 'category']).size().unstack(fill_value=0)
+    fig, ax = plt.subplots()
+    hourly_data.plot(ax=ax)
+    ax.set_title('Content Spread by Hour of Day')
+    ax.set_xlabel('Hour of Day')
+    ax.set_ylabel('Post Count')
+    return fig
 
+def plot_user_content_diversity(df):
+    user_diversity = df.groupby('user_id')['hashtags'].nunique() / df.groupby('user_id')['hashtags'].count()
+    fig, ax = plt.subplots()
+    ax.hist(user_diversity, bins=20, alpha=0.7, edgecolor='black')
+    ax.set_title('User Content Diversity Scores')
+    ax.set_xlabel('Diversity Score (0-1)')
+    ax.set_ylabel('Number of Users')
+    ax.axvline(user_diversity.mean(), color='red', linestyle='--',
+               label=f'Mean: {user_diversity.mean():.2f}')
+    ax.legend()
+    return fig
 
-def show_distribution(df):
-    st.subheader("Numerical Distributions")
-    num = df.select_dtypes(include=[np.number]).copy()
-    num = num.loc[:, ~num.columns.duplicated()].copy()  # remove duplicates
+def plot_category_distribution(df):
+    category_counts = df['category'].value_counts()
+    fig, ax = plt.subplots()
+    ax.pie(category_counts.values, labels=category_counts.index, autopct='%1.1f%%')
+    ax.set_title('Content Category Distribution')
+    return fig
 
-    if num.empty:
-        st.write("No numerical columns to plot.")
-        return
+def plot_health_scores(bias_scores):
+    fig, ax = plt.subplots()
+    bias_categories = ['Diversity', 'Polarization', 'Algorithmic Bias', 'Misinfo Spread']
+    ax.barh(bias_categories, bias_scores, color=['blue', 'orange', 'red', 'purple'])
+    ax.set_title('Normalized Platform Health Scores')
+    ax.set_xlim(0, 1)
+    for i, score in enumerate(bias_scores):
+        ax.text(score + 0.02, i, f'{score:.2f}', va='center')
+    return fig
 
-    col = st.selectbox("Choose numerical column for histogram", options=list(num.columns), key="hist_col")
-    bins = st.slider("Bins", 5, 200, 30, key="hist_bins")
-    fig = px.histogram(num, x=col, nbins=bins, marginal="box", title=f"Distribution of {col}")
-    st.plotly_chart(fig, use_container_width=True)
+def plot_topic_polarization(topic_polarization):
+    fig, ax = plt.subplots()
+    top_topics = topic_polarization.head(10)
+    ax.barh(range(len(top_topics)), top_topics.values)
+    ax.set_yticks(range(len(top_topics)))
+    ax.set_yticklabels(top_topics.index)
+    ax.set_title('Most Polarized Topics (Sentiment Std Dev)')
+    ax.set_xlabel('Standard Deviation')
+    return fig
 
-    if len(num.columns) >= 2:
-        st.write("Scatter plot between two numerical columns")
-        c1, c2 = st.columns(2)
-        with c1:
-            xcol = st.selectbox("X column", options=num.columns, index=0, key="scatter_x")
-        with c2:
-            ycol = st.selectbox("Y column", options=num.columns, index=1, key="scatter_y")
+def plot_virality_by_category(virality_data):
+    fig, ax = plt.subplots()
+    ax.bar(virality_data.index, virality_data.values)
+    ax.set_title('Content Virality by Category')
+    ax.set_ylabel('Virality (Comments+Shares/Likes)')
+    ax.tick_params(axis='x', rotation=45)
+    return fig
 
-        if is_statsmodels_installed():
-            fig2 = px.scatter(num, x=xcol, y=ycol, trendline="ols", title=f"{ycol} vs {xcol}")
-        else:
-            fig2 = px.scatter(num, x=xcol, y=ycol, title=f"{ycol} vs {xcol} (trendline requires statsmodels)")
-        st.plotly_chart(fig2, use_container_width=True)
-
-
-def show_correlation(df):
-    st.subheader("Correlation (numerical)")
-    num = df.select_dtypes(include=[np.number]).copy()
-    num = num.loc[:, ~num.columns.duplicated()].copy()  # remove duplicates
-
-    if num.shape[1] < 2:
-        st.write("Need at least two numerical columns for correlation.")
-        return
-
-    corr = num.corr()
-    fig, ax = plt.subplots(figsize=(8, 6))
-    sns.heatmap(corr, annot=True, fmt=".2f", cmap="vlag", ax=ax)
-    st.pyplot(fig)
-
-
-def show_time_series(df):
-    st.subheader("Time-series explorer")
-    datetime_cols = []
-    for c in df.columns:
-        if np.issubdtype(df[c].dtype, np.datetime64):
-            datetime_cols.append(c)
-        else:
-            try:
-                sample = df[c].dropna().astype(str).iloc[:20]
-                pd.to_datetime(sample, errors="raise")
-                datetime_cols.append(c)
-            except Exception:
-                pass
-
-    if len(datetime_cols) == 0:
-        st.write("No datetime-like columns detected.")
-        return
-
-    dt_col = st.selectbox("Choose datetime column", options=datetime_cols, key="dt_col")
-    df_dt = df.copy()
-    df_dt[dt_col] = pd.to_datetime(df_dt[dt_col], errors="coerce")
-    df_dt = df_dt.dropna(subset=[dt_col])
-    df_dt = df_dt.sort_values(dt_col)
-
-    numeric_cols = df_dt.select_dtypes(include=[np.number]).columns.tolist()
-    if len(numeric_cols) == 0:
-        st.write("No numeric columns to plot against datetime.")
-        return
-
-    val_col = st.selectbox("Choose value column", options=numeric_cols, key="ts_val")
-    window = st.slider("Rolling window (periods)", 1, 100, 7, key="ts_window")
-
-    fig = px.line(df_dt, x=dt_col, y=val_col, title=f"{val_col} over time")
-    if df_dt[val_col].notnull().sum() >= window:
-        rolling = df_dt[val_col].rolling(window, min_periods=1).mean()
-        fig.add_traces(px.line(df_dt, x=dt_col, y=rolling, labels={"y": f"{val_col} (rolling mean)"}).data)
-    st.plotly_chart(fig, use_container_width=True)
-
-
-def show_categorical(df):
-    st.subheader("Categorical columns")
-    cat = df.select_dtypes(include=["object", "category"]).copy()
-    if cat.empty:
-        st.write("No categorical columns detected.")
-        return
-
-    col = st.selectbox("Choose categorical column", options=list(cat.columns), key="cat_col")
-    top_n = st.slider("Show top N categories", 3, 50, 10, key="cat_topn")
-    counts = cat[col].value_counts().nlargest(top_n)
-    fig = px.bar(
-        x=counts.index, y=counts.values,
-        labels={"x": col, "y": "count"},
-        title=f"Top {top_n} categories in {col}"
-    )
-    st.plotly_chart(fig, use_container_width=True)
-
-    st.write("Sample rows for each top category")
-    samples = []
-    for ix in counts.index:
-        row = df[df[col] == ix].head(1)
-        samples.append(row)
-    if samples:
-        st.dataframe(pd.concat(samples).reset_index(drop=True))
-
-
-def show_text_analysis(df):
-    st.subheader("Simple Text Analysis")
-    text_cols = df.select_dtypes(include=["object"]).columns.tolist()
-    if len(text_cols) == 0:
-        st.write("No text columns detected.")
-        return
-
-    col = st.selectbox("Choose text column for analysis", options=text_cols, key="text_col")
-    sample_text = " ".join(df[col].dropna().astype(str).head(100).tolist())
-    if not sample_text.strip():
-        st.write("Selected column contains no textual data.")
-        return
-
-    st.write("Wordcloud (top words)")
-    wc = WordCloud(width=800, height=400, background_color="white", collocations=False).generate(sample_text)
-    fig, ax = plt.subplots(figsize=(10, 4))
-    ax.imshow(wc, interpolation="bilinear")
-    ax.axis("off")
-    st.pyplot(fig)
-
-    # Basic token frequency
-    words = [w.lower().strip(".,!?:;()[]\"'") for w in sample_text.split() if len(w) > 2]
-    c = Counter(words)
-    top = c.most_common(20)
-    freq_df = pd.DataFrame(top, columns=["word", "count"])
-    fig2 = px.bar(freq_df, x="word", y="count", title="Top words")
-    st.plotly_chart(fig2, use_container_width=True)
-
-
+# extra: a function to compute overall health score just like notebook summary
+def compute_overall_health_score(results):
+    health_score = (
+        (1 - min(results['polarization']['polarization_score'] / 1.0, 1.0)) * 0.25 +
+        results['echo_chambers']['diversity_stats']['mean'] * 0.25 +
+        (1 - min((results['algorithmic_bias']['bias_score'] - 1) / 1.0, 1.0)) * 0.25 +
+        (1 - min((results['misinformation']['amplification_ratio'] - 1) / 2.0, 1.0)) * 0.25
+    ) * 100
+    return health_score
+    
+    st.plotly_chart(f2, use_
