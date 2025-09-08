@@ -1,5 +1,6 @@
 # utils.py
 # Helper functions used by the Streamlit app
+# Fixed to handle duplicate column names
 
 import pandas as pd
 import numpy as np
@@ -7,8 +8,8 @@ import streamlit as st
 import plotly.express as px
 import matplotlib.pyplot as plt
 import seaborn as sns
-from io import StringIO
 from wordcloud import WordCloud
+from collections import Counter
 
 sns.set_style("whitegrid")
 
@@ -19,8 +20,10 @@ def load_data(uploaded_file):
     try:
         df = pd.read_csv(uploaded_file)
     except Exception:
-        # fallback encoding
         df = pd.read_csv(uploaded_file, encoding="latin1")
+
+    # 🔑 Ensure column names are unique to avoid DuplicateError
+    df.columns = pd.io.parsers.ParserBase({'names': df.columns})._maybe_dedup_names(df.columns)
     return df
 
 
@@ -62,7 +65,11 @@ def show_missing(df):
 
 def show_distribution(df):
     st.subheader("Numerical Distributions")
-    num = df.select_dtypes(include=[np.number])
+    num = df.select_dtypes(include=[np.number]).copy()
+
+    # 🔑 Remove duplicate columns before plotting
+    num = num.loc[:, ~num.columns.duplicated()].copy()
+
     if num.empty:
         st.write("No numerical columns to plot.")
         return
@@ -86,11 +93,13 @@ def show_distribution(df):
 def show_correlation(df):
     st.subheader("Correlation (numerical)")
     num = df.select_dtypes(include=[np.number])
+    num = num.loc[:, ~num.columns.duplicated()].copy()  # remove duplicates
     if num.shape[1] < 2:
         st.write("Need at least two numerical columns for correlation.")
         return
     corr = num.corr()
     fig, ax = plt.subplots(figsize=(8, 6))
+    import seaborn as sns
     sns.heatmap(corr, annot=True, fmt=".2f", cmap="vlag", ax=ax)
     st.pyplot(fig)
 
@@ -103,7 +112,6 @@ def show_time_series(df):
         if np.issubdtype(df[c].dtype, np.datetime64):
             datetime_cols.append(c)
         else:
-            # quick parse check on a sample (avoid parsing whole column here)
             try:
                 sample = df[c].dropna().astype(str).iloc[:20]
                 pd.to_datetime(sample, errors="raise")
@@ -130,7 +138,6 @@ def show_time_series(df):
     window = st.slider("Rolling window (periods)", 1, 100, 7, key="ts_window")
 
     fig = px.line(df_dt, x=dt_col, y=val_col, title=f"{val_col} over time")
-    # add rolling mean if enough points
     if df_dt[val_col].notnull().sum() >= window:
         rolling = df_dt[val_col].rolling(window, min_periods=1).mean()
         fig.add_traces(px.line(df_dt, x=dt_col, y=rolling, labels={"y": f"{val_col} (rolling mean)"}).data)
@@ -181,10 +188,9 @@ def show_text_analysis(df):
 
     # Basic token frequency
     words = [w.lower().strip(".,!?:;()[]\"'") for w in sample_text.split() if len(w) > 2]
-    from collections import Counter
-
     c = Counter(words)
     top = c.most_common(20)
     freq_df = pd.DataFrame(top, columns=["word", "count"])
     fig2 = px.bar(freq_df, x="word", y="count", title="Top words")
     st.plotly_chart(fig2, use_container_width=True)
+
