@@ -3,9 +3,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import networkx as nx
 
-# ======================
-# ECHO CHAMBER ANALYSIS
-# ======================
+# 1. Echo Chamber Analysis
 def analyze_echo_chambers(df):
     user_diversity = df.groupby('user_id')['hashtags'].nunique() / df.groupby('user_id')['hashtags'].count()
     diversity_stats = {
@@ -14,14 +12,13 @@ def analyze_echo_chambers(df):
         'min': user_diversity.min(),
         'max': user_diversity.max()
     }
-    # Modularity (basic version, as in notebook)
+    # Modularity calculation
     B = nx.Graph()
     for _, row in df.iterrows():
         user = f"user_{row['user_id']}"
         tags = [tag.strip() for tag in str(row['hashtags']).split(',')]
         for tag in tags:
             B.add_edge(user, tag, weight=1)
-    # Project to user-user
     users = [n for n in B.nodes() if n.startswith('user_')]
     user_network = nx.Graph()
     for user1 in users:
@@ -32,34 +29,33 @@ def analyze_echo_chambers(df):
                 overlap = len(user1_tags & user2_tags)
                 if overlap > 0:
                     user_network.add_edge(user1, user2, weight=overlap)
-    modularity = None
+    modularity_val = None
     try:
         from networkx.algorithms.community import greedy_modularity_communities, modularity
         comms = list(greedy_modularity_communities(user_network))
-        modularity = modularity(user_network, comms) if comms else None
+        modularity_val = modularity(user_network, comms) if comms else None
     except Exception:
         pass
-    # Content homophily
+    # Content Homophily
     user_category_entropy = []
     for user, user_df in df.groupby('user_id'):
         counts = user_df['category'].value_counts(normalize=True)
         entropy = -sum([p * np.log(p) for p in counts if p > 0])
         user_category_entropy.append(entropy)
-    avg_entropy = np.mean(user_category_entropy)
+    avg_entropy = float(np.mean(user_category_entropy))
+
     return {
         'user_diversity': user_diversity,
         'diversity_stats': diversity_stats,
-        'modularity': modularity,
+        'modularity': modularity_val,
         'content_entropy': avg_entropy
     }
 
-# =====================
-# POLARIZATION ANALYSIS
-# =====================
+# 2. Polarization Analysis
 def analyze_polarization(df):
-    sentiment = df['sentiment'].dropna()
-    polarization_score = np.std(sentiment)
-    kurt = (np.mean((sentiment-np.mean(sentiment))**4) / (np.var(sentiment)**2)) - 3
+    sentiment = df['sentiment'].dropna().astype(float)
+    polarization_score = float(np.std(sentiment))
+    kurt = float((np.mean((sentiment-np.mean(sentiment))**4) / (np.var(sentiment)**2)) - 3)
     topic_pol = df.groupby('hashtags')['sentiment'].std().sort_values(ascending=False)
     return {
         'polarization_score': polarization_score,
@@ -67,10 +63,9 @@ def analyze_polarization(df):
         'topic_polarization': topic_pol
     }
 
-# ========================
-# ALGORITHMIC BIAS ANALYSIS
-# ========================
+# 3. Algorithmic Bias
 def analyze_algorithmic_bias(df):
+    df = df.copy()
     df['total_engagement'] = df['likes'] + df['comments'] + df['shares']
     df['virality'] = (df['shares'] + df['comments']) / (df['likes'] + 1)
     engagement_stats = df.groupby('category').agg({
@@ -83,39 +78,35 @@ def analyze_algorithmic_bias(df):
     harmful_eng = df[harmful_mask]['total_engagement'].sum()
     safe_eng = df[safe_mask]['total_engagement'].sum()
     harmful_ratio = len(df[harmful_mask]) / len(df)
-    engagement_ratio = harmful_eng / (harmful_eng + safe_eng) if (harmful_eng + safe_eng) else 0
-    bias_score = engagement_ratio / harmful_ratio if harmful_ratio > 0 else 1
+    engagement_ratio = (harmful_eng / (harmful_eng + safe_eng)) if (harmful_eng + safe_eng) else 0
+    bias_score = (engagement_ratio / harmful_ratio) if harmful_ratio > 0 else 1
     harmful_vir = df[harmful_mask]['virality'].mean()
     safe_vir = df[safe_mask]['virality'].mean()
-    virality_bias = harmful_vir / safe_vir if safe_vir else 1
+    virality_bias = (harmful_vir / safe_vir) if safe_vir else 1
+    virality_data = df.groupby('category')['virality'].mean()
     return {
         'engagement_stats': engagement_stats,
-        'bias_score': bias_score,
-        'virality_bias': virality_bias,
-        'virality_data': df.groupby('category')['virality'].mean()
+        'bias_score': float(bias_score),
+        'virality_bias': float(virality_bias),
+        'virality_data': virality_data
     }
 
-# ==============================
-# MISINFORMATION AMPLIFICATION
-# ==============================
+# 4. Misinformation Amplification
 def analyze_misinformation(df):
     df = df.copy()
     df['timestamp'] = pd.to_datetime(df['timestamp'])
-    df = df.set_index('timestamp')
+    df['total_engagement'] = df['likes'] + df['comments'] + df['shares']
     misinfo = df[df['category'] == 'Misinformation']
     safe = df[df['category'] == 'Safe']
-    misinfo_hourly = misinfo.resample('H').size()
-    safe_hourly = safe.resample('H').size()
-    try:
-        amplification_ratio = misinfo_hourly.mean() / safe_hourly.mean() if safe_hourly.mean() > 0 else float('inf')
-    except ZeroDivisionError:
-        amplification_ratio = None
-    misinfo_eng = misinfo['total_engagement'].mean() if not misinfo.empty else 0
-    safe_eng = safe['total_engagement'].mean() if not safe.empty else 1
-    engagement_ratio = misinfo_eng / safe_eng if safe_eng else 1
+    misinfo_hourly = misinfo.resample('H', on='timestamp').size()
+    safe_hourly = safe.resample('H', on='timestamp').size()
+    amplification_ratio = float(misinfo_hourly.mean() / safe_hourly.mean() if safe_hourly.mean() > 0 else 0)
+    misinfo_eng = float(misinfo['total_engagement'].mean() if not misinfo.empty else 0)
+    safe_eng = float(safe['total_engagement'].mean() if not safe.empty else 1)
+    engagement_ratio = float(misinfo_eng / safe_eng if safe_eng else 1)
     users_posting_misinfo = misinfo['user_id'].nunique()
     total_users = df['user_id'].nunique()
-    user_participation = users_posting_misinfo / total_users if total_users else None
+    user_participation = float(users_posting_misinfo) / total_users if total_users else None
     return {
         'amplification_ratio': amplification_ratio,
         'engagement_ratio': engagement_ratio,
@@ -124,9 +115,7 @@ def analyze_misinformation(df):
         'safe_hourly': safe_hourly
     }
 
-# ==================
-# NETWORK STRUCTURE
-# ==================
+# 5. Network Structure Analysis
 def analyze_network_structure(df):
     B = nx.Graph()
     for _, row in df.iterrows():
@@ -147,19 +136,17 @@ def analyze_network_structure(df):
     if len(user_network.nodes()) > 0:
         density = nx.density(user_network)
         avg_clustering = nx.average_clustering(user_network)
-        avg_degree = np.mean([d for n, d in user_network.degree()])
+        avg_degree = float(np.mean([d for n, d in user_network.degree()]))
         return {
             'density': density,
             'avg_clustering': avg_clustering,
-            'avg_degree': avg_degree,
-            'network_graph': user_network
+            'avg_degree': avg_degree
         }
     else:
         return None
 
-# ===============
-# PLOTTING UTILS
-# ===============
+# ------- Plotting utils ------
+
 def plot_sentiment_distribution(df):
     fig, ax = plt.subplots()
     ax.hist(df['sentiment'], bins=30, alpha=0.7, edgecolor='black')
@@ -172,6 +159,7 @@ def plot_sentiment_distribution(df):
     return fig
 
 def plot_engagement_by_category(df):
+    df = df.copy()
     df['total_engagement'] = df['likes'] + df['comments'] + df['shares']
     engagement_by_category = df.groupby('category')['total_engagement'].mean()
     colors = ['red' if cat in ['Harmful', 'Misinformation'] else 'green' for cat in engagement_by_category.index]
@@ -240,7 +228,6 @@ def plot_virality_by_category(virality_data):
     ax.tick_params(axis='x', rotation=45)
     return fig
 
-# extra: a function to compute overall health score just like notebook summary
 def compute_overall_health_score(results):
     health_score = (
         (1 - min(results['polarization']['polarization_score'] / 1.0, 1.0)) * 0.25 +
@@ -249,5 +236,3 @@ def compute_overall_health_score(results):
         (1 - min((results['misinformation']['amplification_ratio'] - 1) / 2.0, 1.0)) * 0.25
     ) * 100
     return health_score
-    
-    st.plotly_chart(f2, use_
