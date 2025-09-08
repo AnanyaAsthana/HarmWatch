@@ -21,7 +21,6 @@ def is_statsmodels_installed():
         return False
 
 
-@st.cache_data
 def load_data(uploaded_file):
     """Load CSV and ensure unique column names."""
     try:
@@ -212,4 +211,5 @@ def show_text_analysis(df):
     freq_df = pd.DataFrame(top, columns=["word", "count"])
     fig2 = px.bar(freq_df, x="word", y="count", title="Top words")
     st.plotly_chart(fig2, use_container_width=True)
+
 
