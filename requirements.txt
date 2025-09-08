@@ -1,3 +1,8 @@
-streamlit
-pandas
-requests
+streamlit>=1.20
+pandas>=1.5
+numpy
+plotly
+matplotlib
+seaborn
+wordcloud
+pillow
