@@ -198,9 +198,14 @@ def plot_virality_by_category(virality_data):
     return fig
 
 def compute_overall_health_score(results):
+    echo_mean = results['echo_chambers']['diversity_stats']['mean']
+    pol_score = results['polarization']['polarization_score']
+    bias_score = results['algorithmic_bias']['bias_score']
+    misinfo_ratio = results['misinformation']['amplification_ratio']
+    
     return (
-        (1-min(results['polarization']['polarization_score']/1.0, 1.0))*0.25 +
-        results['echo_chambers']['diversity_stats']['mean']*0.25 +
-        (1-min((results['algorithmic_bias']['bias_score']-1)/1.0,1.0))*0.25 +
-        (1-min((results['misinformation']['amplification_ratio']-1)/2.0, 1.0))*0.25
+        (1 - min(pol_score / 1.0, 1.0)) * 0.25 +
+        echo_mean * 0.25 +
+        (1 - min((bias_score - 1) / 1.0, 1.0)) * 0.25 +
+        (1 - min((misinfo_ratio - 1) / 2.0, 1.0)) * 0.25
     ) * 100
