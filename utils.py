@@ -11,12 +11,12 @@ def analyze_echo_chambers(df):
         'min': user_diversity.min(),
         'max': user_diversity.max(),
     }
-    # Community and entropy
     B = nx.Graph()
     for _, row in df.iterrows():
         user = f"user_{row['user_id']}"
         tags = [tag.strip() for tag in str(row['hashtags']).split(',')]
-        for tag in tags: B.add_edge(user, tag, weight=1)
+        for tag in tags:
+            B.add_edge(user, tag, weight=1)
     users = [n for n in B.nodes() if n.startswith('user_')]
     user_network = nx.Graph()
     for user1 in users:
@@ -24,14 +24,15 @@ def analyze_echo_chambers(df):
         for user2 in users:
             if user1 != user2:
                 user2_tags = set(B[user2])
-                if len(user1_tags & user2_tags): user_network.add_edge(user1, user2)
+                if len(user1_tags & user2_tags):
+                    user_network.add_edge(user1, user2)
     modularity = None
     try:
         from networkx.algorithms.community import greedy_modularity_communities, modularity as nxmod
         comms = list(greedy_modularity_communities(user_network))
         if comms: modularity = nxmod(user_network, comms)
-    except Exception: pass
-
+    except Exception:
+        pass
     user_category_entropy = [
         -sum([p * np.log(p) for p in counts if p > 0])
         for _, user_df in df.groupby('user_id')
