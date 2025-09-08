@@ -3,22 +3,20 @@ import numpy as np
 import matplotlib.pyplot as plt
 import networkx as nx
 
-# 1. Echo Chamber Analysis
 def analyze_echo_chambers(df):
     user_diversity = df.groupby('user_id')['hashtags'].nunique() / df.groupby('user_id')['hashtags'].count()
     diversity_stats = {
         'mean': user_diversity.mean(),
         'std': user_diversity.std(),
         'min': user_diversity.min(),
-        'max': user_diversity.max()
+        'max': user_diversity.max(),
     }
-    # Modularity calculation
+    # Community and entropy
     B = nx.Graph()
     for _, row in df.iterrows():
         user = f"user_{row['user_id']}"
         tags = [tag.strip() for tag in str(row['hashtags']).split(',')]
-        for tag in tags:
-            B.add_edge(user, tag, weight=1)
+        for tag in tags: B.add_edge(user, tag, weight=1)
     users = [n for n in B.nodes() if n.startswith('user_')]
     user_network = nx.Graph()
     for user1 in users:
@@ -26,103 +24,88 @@ def analyze_echo_chambers(df):
         for user2 in users:
             if user1 != user2:
                 user2_tags = set(B[user2])
-                overlap = len(user1_tags & user2_tags)
-                if overlap > 0:
-                    user_network.add_edge(user1, user2, weight=overlap)
-    modularity_val = None
+                if len(user1_tags & user2_tags): user_network.add_edge(user1, user2)
+    modularity = None
     try:
-        from networkx.algorithms.community import greedy_modularity_communities, modularity
+        from networkx.algorithms.community import greedy_modularity_communities, modularity as nxmod
         comms = list(greedy_modularity_communities(user_network))
-        modularity_val = modularity(user_network, comms) if comms else None
-    except Exception:
-        pass
-    # Content Homophily
-    user_category_entropy = []
-    for user, user_df in df.groupby('user_id'):
-        counts = user_df['category'].value_counts(normalize=True)
-        entropy = -sum([p * np.log(p) for p in counts if p > 0])
-        user_category_entropy.append(entropy)
-    avg_entropy = float(np.mean(user_category_entropy))
+        if comms: modularity = nxmod(user_network, comms)
+    except Exception: pass
 
+    user_category_entropy = [
+        -sum([p * np.log(p) for p in counts if p > 0])
+        for _, user_df in df.groupby('user_id')
+        for counts in [user_df['category'].value_counts(normalize=True)]
+    ]
+    avg_entropy = float(np.mean(user_category_entropy))
     return {
         'user_diversity': user_diversity,
         'diversity_stats': diversity_stats,
-        'modularity': modularity_val,
-        'content_entropy': avg_entropy
+        'modularity': modularity,
+        'content_entropy': avg_entropy,
     }
 
-# 2. Polarization Analysis
 def analyze_polarization(df):
     sentiment = df['sentiment'].dropna().astype(float)
     polarization_score = float(np.std(sentiment))
-    kurt = float((np.mean((sentiment-np.mean(sentiment))**4) / (np.var(sentiment)**2)) - 3)
+    kurtosis = float((np.mean((sentiment-np.mean(sentiment))**4)/(np.var(sentiment)**2))-3)
     topic_pol = df.groupby('hashtags')['sentiment'].std().sort_values(ascending=False)
     return {
         'polarization_score': polarization_score,
-        'kurtosis': kurt,
+        'kurtosis': kurtosis,
         'topic_polarization': topic_pol
     }
 
-# 3. Algorithmic Bias
 def analyze_algorithmic_bias(df):
     df = df.copy()
     df['total_engagement'] = df['likes'] + df['comments'] + df['shares']
     df['virality'] = (df['shares'] + df['comments']) / (df['likes'] + 1)
-    engagement_stats = df.groupby('category').agg({
-        'total_engagement': 'mean',
-        'virality': 'mean',
-        'post_id': 'count'
-    }).rename(columns={'post_id': 'post_count'})
-    harmful_mask = df['category'].isin(['Harmful', 'Misinformation'])
-    safe_mask = df['category'] == 'Safe'
+    harmful_mask = df['category'].isin(['Harmful','Misinformation'])
+    safe_mask = df['category']=='Safe'
     harmful_eng = df[harmful_mask]['total_engagement'].sum()
     safe_eng = df[safe_mask]['total_engagement'].sum()
     harmful_ratio = len(df[harmful_mask]) / len(df)
     engagement_ratio = (harmful_eng / (harmful_eng + safe_eng)) if (harmful_eng + safe_eng) else 0
-    bias_score = (engagement_ratio / harmful_ratio) if harmful_ratio > 0 else 1
+    bias_score = (engagement_ratio / harmful_ratio) if harmful_ratio else 1
     harmful_vir = df[harmful_mask]['virality'].mean()
     safe_vir = df[safe_mask]['virality'].mean()
-    virality_bias = (harmful_vir / safe_vir) if safe_vir else 1
+    virality_bias = (harmful_vir/safe_vir) if safe_vir else 1
     virality_data = df.groupby('category')['virality'].mean()
     return {
-        'engagement_stats': engagement_stats,
         'bias_score': float(bias_score),
         'virality_bias': float(virality_bias),
-        'virality_data': virality_data
+        'virality_data': virality_data,
     }
 
-# 4. Misinformation Amplification
 def analyze_misinformation(df):
     df = df.copy()
     df['timestamp'] = pd.to_datetime(df['timestamp'])
     df['total_engagement'] = df['likes'] + df['comments'] + df['shares']
-    misinfo = df[df['category'] == 'Misinformation']
-    safe = df[df['category'] == 'Safe']
+    misinfo = df[df['category']=='Misinformation']
+    safe = df[df['category']=='Safe']
     misinfo_hourly = misinfo.resample('H', on='timestamp').size()
     safe_hourly = safe.resample('H', on='timestamp').size()
-    amplification_ratio = float(misinfo_hourly.mean() / safe_hourly.mean() if safe_hourly.mean() > 0 else 0)
+    amplification_ratio = float(misinfo_hourly.mean() / safe_hourly.mean()) if safe_hourly.mean() > 0 else 0
     misinfo_eng = float(misinfo['total_engagement'].mean() if not misinfo.empty else 0)
     safe_eng = float(safe['total_engagement'].mean() if not safe.empty else 1)
-    engagement_ratio = float(misinfo_eng / safe_eng if safe_eng else 1)
+    engagement_ratio = float(misinfo_eng/safe_eng if safe_eng else 1)
     users_posting_misinfo = misinfo['user_id'].nunique()
     total_users = df['user_id'].nunique()
-    user_participation = float(users_posting_misinfo) / total_users if total_users else None
+    user_participation = float(users_posting_misinfo/total_users) if total_users else None
     return {
         'amplification_ratio': amplification_ratio,
         'engagement_ratio': engagement_ratio,
         'user_participation': user_participation,
         'misinfo_hourly': misinfo_hourly,
-        'safe_hourly': safe_hourly
+        'safe_hourly': safe_hourly,
     }
 
-# 5. Network Structure Analysis
 def analyze_network_structure(df):
     B = nx.Graph()
     for _, row in df.iterrows():
         user = f"user_{row['user_id']}"
         tags = [tag.strip() for tag in str(row['hashtags']).split(',')]
-        for tag in tags:
-            B.add_edge(user, tag, weight=1)
+        for tag in tags: B.add_edge(user, tag, weight=1)
     users = [n for n in B.nodes() if n.startswith('user_')]
     user_network = nx.Graph()
     for user1 in users:
@@ -130,31 +113,22 @@ def analyze_network_structure(df):
         for user2 in users:
             if user1 != user2:
                 user2_tags = set(B[user2])
-                overlap = len(user1_tags & user2_tags)
-                if overlap > 0:
-                    user_network.add_edge(user1, user2, weight=overlap)
-    if len(user_network.nodes()) > 0:
+                if len(user1_tags & user2_tags): user_network.add_edge(user1, user2)
+    if len(user_network.nodes()):
         density = nx.density(user_network)
         avg_clustering = nx.average_clustering(user_network)
         avg_degree = float(np.mean([d for n, d in user_network.degree()]))
         return {
-            'density': density,
-            'avg_clustering': avg_clustering,
-            'avg_degree': avg_degree
+            'density': density, 'avg_clustering': avg_clustering, 'avg_degree': avg_degree,
         }
-    else:
-        return None
-
-# ------- Plotting utils ------
+    else: return None
 
 def plot_sentiment_distribution(df):
     fig, ax = plt.subplots()
     ax.hist(df['sentiment'], bins=30, alpha=0.7, edgecolor='black')
     ax.set_title('Sentiment Distribution (Polarization)')
-    ax.set_xlabel('Sentiment Score')
-    ax.set_ylabel('Frequency')
-    ax.axvline(df['sentiment'].mean(), color='red', linestyle='--',
-               label=f'Mean: {df["sentiment"].mean():.2f}')
+    ax.set_xlabel('Sentiment Score'); ax.set_ylabel('Frequency')
+    ax.axvline(df['sentiment'].mean(), color='red', linestyle='--', label=f"Mean: {df['sentiment'].mean():.2f}")
     ax.legend()
     return fig
 
@@ -162,7 +136,7 @@ def plot_engagement_by_category(df):
     df = df.copy()
     df['total_engagement'] = df['likes'] + df['comments'] + df['shares']
     engagement_by_category = df.groupby('category')['total_engagement'].mean()
-    colors = ['red' if cat in ['Harmful', 'Misinformation'] else 'green' for cat in engagement_by_category.index]
+    colors = ['red' if cat in ['Harmful','Misinformation'] else 'green' for cat in engagement_by_category.index]
     fig, ax = plt.subplots()
     ax.bar(engagement_by_category.index, engagement_by_category.values, color=colors, alpha=0.7)
     ax.set_title('Average Engagement by Content Category')
@@ -171,14 +145,11 @@ def plot_engagement_by_category(df):
     return fig
 
 def plot_temporal_content_spread(df):
-    df = df.copy()
-    df['timestamp'] = pd.to_datetime(df['timestamp'])
+    df = df.copy(); df['timestamp']=pd.to_datetime(df['timestamp'])
     hourly_data = df.groupby([df['timestamp'].dt.hour, 'category']).size().unstack(fill_value=0)
     fig, ax = plt.subplots()
-    hourly_data.plot(ax=ax)
-    ax.set_title('Content Spread by Hour of Day')
-    ax.set_xlabel('Hour of Day')
-    ax.set_ylabel('Post Count')
+    hourly_data.plot(ax=ax); ax.set_title('Content Spread by Hour of Day')
+    ax.set_xlabel('Hour of Day'); ax.set_ylabel('Post Count')
     return fig
 
 def plot_user_content_diversity(df):
@@ -188,10 +159,8 @@ def plot_user_content_diversity(df):
     ax.set_title('User Content Diversity Scores')
     ax.set_xlabel('Diversity Score (0-1)')
     ax.set_ylabel('Number of Users')
-    ax.axvline(user_diversity.mean(), color='red', linestyle='--',
-               label=f'Mean: {user_diversity.mean():.2f}')
-    ax.legend()
-    return fig
+    ax.axvline(user_diversity.mean(), color='red', linestyle='--', label=f'Mean: {user_diversity.mean():.2f}')
+    ax.legend(); return fig
 
 def plot_category_distribution(df):
     category_counts = df['category'].value_counts()
@@ -202,20 +171,19 @@ def plot_category_distribution(df):
 
 def plot_health_scores(bias_scores):
     fig, ax = plt.subplots()
-    bias_categories = ['Diversity', 'Polarization', 'Algorithmic Bias', 'Misinfo Spread']
-    ax.barh(bias_categories, bias_scores, color=['blue', 'orange', 'red', 'purple'])
+    categories = ['Diversity', 'Polarization', 'Algorithmic Bias', 'Misinfo Spread']
+    ax.barh(categories, bias_scores, color=['blue','orange','red','purple'])
     ax.set_title('Normalized Platform Health Scores')
     ax.set_xlim(0, 1)
     for i, score in enumerate(bias_scores):
-        ax.text(score + 0.02, i, f'{score:.2f}', va='center')
+        ax.text(score+0.02, i, f'{score:.2f}', va='center')
     return fig
 
 def plot_topic_polarization(topic_polarization):
     fig, ax = plt.subplots()
     top_topics = topic_polarization.head(10)
     ax.barh(range(len(top_topics)), top_topics.values)
-    ax.set_yticks(range(len(top_topics)))
-    ax.set_yticklabels(top_topics.index)
+    ax.set_yticks(range(len(top_topics))); ax.set_yticklabels(top_topics.index)
     ax.set_title('Most Polarized Topics (Sentiment Std Dev)')
     ax.set_xlabel('Standard Deviation')
     return fig
@@ -229,10 +197,9 @@ def plot_virality_by_category(virality_data):
     return fig
 
 def compute_overall_health_score(results):
-    health_score = (
-        (1 - min(results['polarization']['polarization_score'] / 1.0, 1.0)) * 0.25 +
-        results['echo_chambers']['diversity_stats']['mean'] * 0.25 +
-        (1 - min((results['algorithmic_bias']['bias_score'] - 1) / 1.0, 1.0)) * 0.25 +
-        (1 - min((results['misinformation']['amplification_ratio'] - 1) / 2.0, 1.0)) * 0.25
+    return (
+        (1-min(results['polarization']['polarization_score']/1.0, 1.0))*0.25 +
+        results['echo_chambers']['diversity_stats']['mean']*0.25 +
+        (1-min((results['algorithmic_bias']['bias_score']-1)/1.0,1.0))*0.25 +
+        (1-min((results['misinformation']['amplification_ratio']-1)/2.0, 1.0))*0.25
     ) * 100
-    return health_score
