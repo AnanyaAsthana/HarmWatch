@@ -1,6 +1,5 @@
 # utils.py
-# Helper functions used by the Streamlit app
-# Fixed to handle duplicate column names
+# Fully fixed helper functions for Streamlit app
 
 import pandas as pd
 import numpy as np
@@ -14,16 +13,30 @@ from collections import Counter
 sns.set_style("whitegrid")
 
 
+def is_statsmodels_installed():
+    try:
+        import statsmodels  # noqa: F401
+        return True
+    except ImportError:
+        return False
+
+
 @st.cache_data
 def load_data(uploaded_file):
-    """Load CSV from uploaded file-like object or path. Tries common encodings."""
+    """Load CSV and ensure unique column names."""
     try:
         df = pd.read_csv(uploaded_file)
     except Exception:
         df = pd.read_csv(uploaded_file, encoding="latin1")
 
-    # 🔑 Ensure column names are unique to avoid DuplicateError
-    df.columns = pd.io.parsers.ParserBase({'names': df.columns})._maybe_dedup_names(df.columns)
+    # Make column names unique
+    cols = pd.Series(df.columns)
+    for dup in cols[cols.duplicated()].unique():
+        dup_idx = cols[cols == dup].index.tolist()
+        for i, idx in enumerate(dup_idx[1:], start=1):
+            cols[idx] = f"{dup}.{i}"
+    df.columns = cols
+
     return df
 
 
@@ -66,9 +79,7 @@ def show_missing(df):
 def show_distribution(df):
     st.subheader("Numerical Distributions")
     num = df.select_dtypes(include=[np.number]).copy()
-
-    # 🔑 Remove duplicate columns before plotting
-    num = num.loc[:, ~num.columns.duplicated()].copy()
+    num = num.loc[:, ~num.columns.duplicated()].copy()  # remove duplicates
 
     if num.empty:
         st.write("No numerical columns to plot.")
@@ -86,27 +97,31 @@ def show_distribution(df):
             xcol = st.selectbox("X column", options=num.columns, index=0, key="scatter_x")
         with c2:
             ycol = st.selectbox("Y column", options=num.columns, index=1, key="scatter_y")
-        fig2 = px.scatter(num, x=xcol, y=ycol, trendline="ols", title=f"{ycol} vs {xcol}")
+
+        if is_statsmodels_installed():
+            fig2 = px.scatter(num, x=xcol, y=ycol, trendline="ols", title=f"{ycol} vs {xcol}")
+        else:
+            fig2 = px.scatter(num, x=xcol, y=ycol, title=f"{ycol} vs {xcol} (trendline requires statsmodels)")
         st.plotly_chart(fig2, use_container_width=True)
 
 
 def show_correlation(df):
     st.subheader("Correlation (numerical)")
-    num = df.select_dtypes(include=[np.number])
+    num = df.select_dtypes(include=[np.number]).copy()
     num = num.loc[:, ~num.columns.duplicated()].copy()  # remove duplicates
+
     if num.shape[1] < 2:
         st.write("Need at least two numerical columns for correlation.")
         return
+
     corr = num.corr()
     fig, ax = plt.subplots(figsize=(8, 6))
-    import seaborn as sns
     sns.heatmap(corr, annot=True, fmt=".2f", cmap="vlag", ax=ax)
     st.pyplot(fig)
 
 
 def show_time_series(df):
     st.subheader("Time-series explorer")
-    # detect datetime-like columns
     datetime_cols = []
     for c in df.columns:
         if np.issubdtype(df[c].dtype, np.datetime64):
@@ -154,7 +169,11 @@ def show_categorical(df):
     col = st.selectbox("Choose categorical column", options=list(cat.columns), key="cat_col")
     top_n = st.slider("Show top N categories", 3, 50, 10, key="cat_topn")
     counts = cat[col].value_counts().nlargest(top_n)
-    fig = px.bar(x=counts.index, y=counts.values, labels={"x": col, "y": "count"}, title=f"Top {top_n} categories in {col}")
+    fig = px.bar(
+        x=counts.index, y=counts.values,
+        labels={"x": col, "y": "count"},
+        title=f"Top {top_n} categories in {col}"
+    )
     st.plotly_chart(fig, use_container_width=True)
 
     st.write("Sample rows for each top category")
