@@ -1,69 +1,107 @@
-# app.py
-# Streamlit entrypoint for social CSV analysis dashboard
-# Run with: streamlit run app.py
-
 import streamlit as st
+import pandas as pd
 from utils import (
-    load_data,
-    show_overview,
-    show_missing,
-    show_distribution,
-    show_correlation,
-    show_time_series,
-    show_categorical,
-    show_text_analysis,
+    analyze_echo_chambers,
+    analyze_polarization,
+    analyze_algorithmic_bias,
+    analyze_misinformation,
+    analyze_network_structure,
+    plot_sentiment_distribution,
+    plot_engagement_by_category,
+    plot_temporal_content_spread,
+    plot_user_content_diversity,
+    plot_category_distribution,
+    plot_health_scores,
+    plot_topic_polarization,
+    plot_virality_by_category,
+    compute_overall_health_score
 )
 
-st.set_page_config(page_title="Social Data Explorer", layout="wide")
-st.title("Social Data Explorer 🧭")
-st.markdown(
-    "Upload a CSV and the app will run an exploratory analysis: preview, summary stats, missing values, distributions, correlations, time-series and simple text analysis."
-)
+st.set_page_config(page_title="Social Media Platform Analysis Dashboard", layout="wide")
 
-uploaded_file = st.file_uploader("Upload CSV file", type=["csv"])
+st.title("🧪 Social Media Platform Analysis Dashboard")
 
+uploaded_file = st.file_uploader("Upload social_data.csv", type="csv", key="data_uploader")
 if uploaded_file is not None:
-    # load dataframe (handles file-like objects)
-    df = load_data(uploaded_file)
+    df = pd.read_csv(uploaded_file)
+    df['sentiment'] = pd.to_numeric(df['sentiment'], errors='coerce')
+    # Run all analyses
+    echo_res = analyze_echo_chambers(df)
+    pol_res = analyze_polarization(df)
+    alg_bias = analyze_algorithmic_bias(df)
+    misinfo = analyze_misinformation(df)
+    net_res = analyze_network_structure(df)
+    # scoreboard (normalized as in notebook)
+    bias_scores = [
+        echo_res['diversity_stats']['mean'],
+        1 - min(pol_res['polarization_score'] / 1.0, 1.0),
+        min(alg_bias['bias_score'], 2.0) / 2.0,
+        min(misinfo['amplification_ratio'], 3.0) / 3.0 if misinfo['amplification_ratio'] is not None else 0
+    ]
+    overall = compute_overall_health_score({
+        'echo_chambers': echo_res,
+        'polarization': pol_res,
+        'algorithmic_bias': alg_bias,
+        'misinformation': misinfo
+    })
 
-    st.sidebar.header("Controls")
-    show_head = st.sidebar.checkbox("Show head (first 10 rows)", value=True)
-    if show_head:
-        st.subheader("Data preview")
-        st.dataframe(df.head(10))
+    # Layout
+    st.header("Summary Metrics")
+    metrics_cols = st.columns(4)
+    metrics_cols[0].metric("Echo Chamber Strength", f"{echo_res['diversity_stats']['mean']:.3f}")
+    metrics_cols[1].metric("Polarization Level", f"{pol_res['polarization_score']:.3f}")
+    metrics_cols[2].metric("Algorithmic Bias", f"{alg_bias['bias_score']:.3f}")
+    metrics_cols[3].metric("Misinformation Spread", f"{misinfo['amplification_ratio'] if misinfo['amplification_ratio'] else 0:.3f}")
 
-    st.sidebar.markdown("---")
-    st.sidebar.subheader("Select columns for analysis (optional)")
-    cols = st.sidebar.multiselect("Columns to focus on", options=list(df.columns), default=list(df.columns))
-    if not cols:
-        st.warning("Please select at least one column from the sidebar to proceed.")
+    st.subheader("Overall Platform Health Score")
+    st.info(f"{overall:.1f}/100")
+    if overall > 80:
+        st.success("✅ EXCELLENT: Platform shows healthy discourse patterns")
+    elif overall > 60:
+        st.warning("⚠️ MODERATE: Some concerning patterns detected")
     else:
-        df_sel = df[cols].copy()
+        st.error("❌ POOR: Significant platform health issues detected")
 
-        # Overview
-        show_overview(df_sel)
+    st.divider()
 
-        # Missing values
-        show_missing(df_sel)
+    # Tabs for visualizations
+    tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
+        "Polarization", "Algorithmic Bias", "Misinformation", "Echo Chambers", "Categories", "Scores"
+    ])
 
-        # Numerical distributions
-        show_distribution(df_sel)
+    with tab1:
+        st.subheader("Sentiment Distribution")
+        st.pyplot(plot_sentiment_distribution(df))
+        st.subheader("Most Polarized Topics")
+        st.pyplot(plot_topic_polarization(pol_res['topic_polarization']))
 
-        # Correlation
-        show_correlation(df_sel)
+    with tab2:
+        st.subheader("Engagement by Category")
+        st.pyplot(plot_engagement_by_category(df))
+        st.subheader("Virality by Category")
+        st.pyplot(plot_virality_by_category(alg_bias['virality_data']))
 
-        # Time-series (auto-detect)
-        show_time_series(df_sel)
+    with tab3:
+        st.subheader("Temporal Spread (Misinformation vs Safe)")
+        st.pyplot(plot_temporal_content_spread(df))
 
-        # Categorical
-        show_categorical(df_sel)
+    with tab4:
+        st.subheader("User Content Diversity")
+        st.pyplot(plot_user_content_diversity(df))
+        if net_res:
+            st.metric("Network Density", f"{net_res['density']:.3f}")
+            st.metric("Avg Clustering", f"{net_res['avg_clustering']:.3f}")
+            st.metric("Avg Degree", f"{net_res['avg_degree']:.1f}")
+        else:
+            st.warning("Network too small for analysis.")
 
-        # Text analysis (if text exists)
-        show_text_analysis(df_sel)
+    with tab5:
+        st.subheader("Category Distribution")
+        st.pyplot(plot_category_distribution(df))
 
-    st.sidebar.markdown("---")
-    st.sidebar.info("Analysis generated automatically. For custom analyses, modify utils.py and app.py as needed.")
-
+    with tab6:
+        st.subheader("Normalized Platform Health Scores")
+        st.pyplot(plot_health_scores(bias_scores))
 else:
-    st.info("Upload a CSV file to begin. If your repo already contains a CSV (e.g., social_data.csv), drag it into the uploader or use the existing path when testing locally.")
+    st.warning("Please upload your social_data.csv file to get started.")
 
