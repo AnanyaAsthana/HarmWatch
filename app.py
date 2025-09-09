@@ -16,18 +16,17 @@ uploaded_file = st.file_uploader("Upload your social_data.csv", type=["csv"])
 if uploaded_file is not None:
     try:
         df = pd.read_csv(uploaded_file)
-        
         # Convert numeric columns
         for col in ['sentiment', 'likes', 'comments', 'shares']:
             df[col] = pd.to_numeric(df[col], errors='coerce')
-        
+
         # Run analyses
         echo_res = analyze_echo_chambers(df)
         pol_res = analyze_polarization(df)
         alg_bias = analyze_algorithmic_bias(df)
         misinfo = analyze_misinformation(df)
         net_res = analyze_network_structure(df)
-        
+
         # Calculate bias scores
         bias_scores = [
             echo_res['diversity_stats']['mean'],
@@ -35,73 +34,271 @@ if uploaded_file is not None:
             min(alg_bias['bias_score'], 2.0) / 2.0,
             min(misinfo['amplification_ratio'], 3.0) / 3.0 if misinfo['amplification_ratio'] is not None else 0
         ]
-        
+
         # Calculate overall health score
         overall = compute_overall_health_score({
-            'echo_chambers': echo_res, 
+            'echo_chambers': echo_res,
             'polarization': pol_res,
-            'algorithmic_bias': alg_bias, 
+            'algorithmic_bias': alg_bias,
             'misinformation': misinfo,
         })
 
-        st.header("Summary Metrics")
+        st.header("📊 Summary Metrics")
         metrics_cols = st.columns(4)
-        metrics_cols[0].metric("Echo Chamber Strength", f"{echo_res['diversity_stats']['mean']:.3f}")
-        metrics_cols[1].metric("Polarization Level", f"{pol_res['polarization_score']:.3f}")
-        metrics_cols[2].metric("Algorithmic Bias", f"{alg_bias['bias_score']:.3f}")
-        metrics_cols[3].metric("Misinformation Spread", f"{misinfo['amplification_ratio']:.3f}")
-
-        st.subheader("Overall Platform Health Score")
-        st.info(f"{overall:.1f}/100")
-        if overall > 80:
-            st.success("✅ EXCELLENT: Platform shows healthy discourse patterns")
-        elif overall > 60:
-            st.warning("⚠️ MODERATE: Some concerning patterns detected")
-        else:
-            st.error("❌ POOR: Significant platform health issues detected")
-        
-        st.divider()
-        
-        tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
-            "Polarization", "Algorithmic Bias", "Misinformation", "Echo Chambers", "Categories", "Scores"
-        ])
-        
-        with tab1:
-            st.subheader("Sentiment Distribution")
-            st.pyplot(plot_sentiment_distribution(df))
-            st.subheader("Most Polarized Topics")
-            st.pyplot(plot_topic_polarization(pol_res['topic_polarization']))
-        
-        with tab2:
-            st.subheader("Engagement by Category")
-            st.pyplot(plot_engagement_by_category(df))
-            st.subheader("Virality by Category")
-            st.pyplot(plot_virality_by_category(alg_bias['virality_data']))
-        
-        with tab3:
-            st.subheader("Temporal Spread")
-            st.pyplot(plot_temporal_content_spread(df))
-        
-        with tab4:
-            st.subheader("User Content Diversity")
-            st.pyplot(plot_user_content_diversity(df))
-            if net_res:
-                st.metric("Network Density", f"{net_res['density']:.3f}")
-                st.metric("Avg Clustering", f"{net_res['avg_clustering']:.3f}")
-                st.metric("Avg Degree", f"{net_res['avg_degree']:.1f}")
+        metrics_cols[0].metric("Echo Chamber Strength", f"{echo_res['diversity_stats']['mean']:.3f}", 
+                              help="Higher values indicate more diverse content consumption (healthier)")
+        metrics_cols[1].metric("Polarization Level", f"{pol_res['polarization_score']:.3f}",
+                              help="Higher values indicate more polarized sentiment (less healthy)")
+        metrics_cols[2].metric("Algorithmic Bias", f"{alg_bias['bias_score']:.3f}",
+                              help="Values > 1 indicate harmful content gets more engagement")
+        metrics_cols[3].metric("Misinformation Spread", f"{misinfo['amplification_ratio']:.3f}",
+                              help="Higher values indicate misinformation spreads faster than safe content")
+        st.subheader("🏥 Overall Platform Health Score")
+        health_col1, health_col2 = st.columns([1, 3])
+        with health_col1:
+            st.info(f"**{overall:.1f}/100**")
+        with health_col2:
+            if overall > 80:
+                st.success("✅ **EXCELLENT**: Platform shows healthy discourse patterns with minimal harmful content amplification")
+            elif overall > 60:
+                st.warning("⚠️ **MODERATE**: Some concerning patterns detected - monitor for potential issues")
             else:
-                st.warning("Network too small for analysis.")
-        
-        with tab5:
-            st.subheader("Category Distribution")
-            st.pyplot(plot_category_distribution(df))
-        
-        with tab6:
-            st.subheader("Normalized Platform Health Scores")
-            st.pyplot(plot_health_scores(bias_scores))
-            
+                st.error("❌ **POOR**: Significant platform health issues detected - immediate intervention recommended")
+        st.divider()
+
+        # SECTION 1: POLARIZATION ANALYSIS
+        st.header("📈 1. Polarization Analysis")
+        st.markdown("""
+        **What it measures**: How extreme and divided user opinions are on the platform.
+        **Parameters**: Sentiment scores ranging from -1 (very negative) to +1 (very positive).
+        **Interpretation**: 
+        - High standard deviation indicates polarized content
+        - Bimodal distribution suggests echo chambers
+        - Normal distribution around 0 indicates balanced discourse
+        """)
+
+        col1, col2 = st.columns(2)
+        with col1:
+            st.subheader("Sentiment Distribution")
+            st.pyplot(plot_sentiment_distribution(df), use_container_width=False)
+
+        with col2:
+            st.subheader("Most Polarized Topics")
+            st.pyplot(plot_topic_polarization(pol_res['topic_polarization']), use_container_width=False)
+
+        st.markdown(f"""
+        **Analysis Results**:
+        - Polarization Score: **{pol_res['polarization_score']:.3f}** (Standard deviation of sentiment)
+        - Kurtosis: **{pol_res['kurtosis']:.3f}** (Measure of extreme values)
+        - Most polarized hashtag: **{pol_res['topic_polarization'].index[0] if len(pol_res['topic_polarization']) > 0 else 'N/A'}**
+        """)
+
+        st.divider()
+
+        # SECTION 2: ALGORITHMIC BIAS ANALYSIS
+        st.header("⚖️ 2. Algorithmic Bias Analysis")
+        st.markdown("""
+        **What it measures**: Whether harmful content receives disproportionate algorithmic promotion.
+        **Parameters**: 
+        - Engagement = Likes + Comments + Shares
+        - Virality = (Comments + Shares) / (Likes + 1)
+        **Interpretation**: 
+        - Bias Score > 1.0 indicates harmful content gets more engagement than expected
+        - Higher virality for harmful categories suggests algorithmic amplification
+        """)
+
+        col1, col2 = st.columns(2)
+        with col1:
+            st.subheader("Engagement by Category")
+            st.pyplot(plot_engagement_by_category(df), use_container_width=False)
+
+        with col2:
+            st.subheader("Virality by Category")
+            st.pyplot(plot_virality_by_category(alg_bias['virality_data']), use_container_width=False)
+
+        st.markdown(f"""
+        **Analysis Results**:
+        - Algorithmic Bias Score: **{alg_bias['bias_score']:.3f}** (1.0 = fair, >1.0 = biased toward harmful)
+        - Virality Bias: **{alg_bias['virality_bias']:.3f}** (Harmful vs Safe content virality ratio)
+        """)
+
+        st.divider()
+
+        # SECTION 3: MISINFORMATION SPREAD ANALYSIS
+        st.header("🚨 3. Misinformation Spread Analysis")
+        st.markdown("""
+        **What it measures**: How quickly misinformation spreads compared to legitimate content.
+        **Parameters**: 
+        - Temporal analysis by hour
+        - Engagement ratios between misinformation and safe content
+        **Interpretation**: 
+        - Amplification Ratio > 1.0 means misinformation spreads faster
+        - Higher user participation indicates wider misinformation reach
+        """)
+
+        st.subheader("Temporal Content Spread")
+        st.pyplot(plot_temporal_content_spread(df), use_container_width=False)
+
+        st.markdown(f"""
+        **Analysis Results**:
+        - Amplification Ratio: **{misinfo['amplification_ratio']:.3f}** (Misinformation vs Safe content spread rate)
+        - Engagement Ratio: **{misinfo['engagement_ratio']:.3f}** (Misinformation vs Safe engagement ratio)
+        - User Participation: **{misinfo['user_participation']:.1%}** (Percentage of users posting misinformation)
+        """)
+
+        st.divider()
+
+        # SECTION 4: ECHO CHAMBERS ANALYSIS
+        st.header("🔄 4. Echo Chambers Analysis")
+        st.markdown("""
+        **What it measures**: How diverse users' content consumption is and network clustering.
+        **Parameters**: 
+        - Diversity Score = Unique hashtags / Total hashtags per user
+        - Network metrics based on shared hashtag connections
+        **Interpretation**: 
+        - Higher diversity scores indicate users engage with varied content
+        - Lower scores suggest users are in echo chambers
+        - Network density shows how interconnected user communities are
+        """)
+
+        st.subheader("User Content Diversity")
+        st.pyplot(plot_user_content_diversity(df), use_container_width=False)
+
+        # Network metrics
+        if net_res:
+            net_col1, net_col2, net_col3 = st.columns(3)
+            with net_col1:
+                st.metric("Network Density", f"{net_res['density']:.3f}",
+                         help="How connected users are (0-1, higher = more connected)")
+            with net_col2:
+                st.metric("Average Clustering", f"{net_res['avg_clustering']:.3f}",
+                         help="How much users cluster in groups (0-1, higher = more clustering)")
+            with net_col3:
+                st.metric("Average Degree", f"{net_res['avg_degree']:.1f}",
+                         help="Average number of connections per user")
+        else:
+            st.warning("⚠️ Network too small for meaningful analysis.")
+
+        modularity_text = f"{echo_res['modularity']:.3f}" if echo_res['modularity'] is not None else 'N/A'
+        st.markdown(f"""
+        **Analysis Results**:
+        - Mean Diversity Score: **{echo_res['diversity_stats']['mean']:.3f}** (0-1, higher = more diverse)
+        - Content Entropy: **{echo_res['content_entropy']:.3f}** (Higher = more varied content categories)
+        - Network Modularity: **{modularity_text}** (Higher = more distinct communities)
+        """)
+
+        st.divider()
+
+        # SECTION 5: CONTENT CATEGORIES OVERVIEW
+        st.header("📊 5. Content Categories Overview")
+        st.markdown("""
+        **What it measures**: Distribution of different content types on the platform.
+        **Parameters**: Content categorized as Safe, Harmful, or Misinformation
+        **Interpretation**: 
+        - Shows the proportion of different content types
+        - Helps identify if harmful content is prevalent
+        """)
+
+        st.subheader("Category Distribution")
+        st.pyplot(plot_category_distribution(df), use_container_width=False)
+
+        # Category statistics
+        category_stats = df['category'].value_counts(normalize=True) * 100
+        st.markdown("**Category Breakdown:**")
+        for category, percentage in category_stats.items():
+            if category in ['Harmful', 'Misinformation']:
+                st.markdown(f"- 🔴 **{category}**: {percentage:.1f}%")
+            else:
+                st.markdown(f"- 🟢 **{category}**: {percentage:.1f}%")
+
+        st.divider()
+
+        # SECTION 6: NORMALIZED HEALTH SCORES
+        st.header("🎯 6. Normalized Platform Health Scores")
+        st.markdown("""
+        **What it measures**: All metrics normalized to 0-1 scale for easy comparison.
+        **Parameters**: 
+        - Diversity: Higher = better (more content variety)
+        - Polarization: Lower = better (less extreme views)
+        - Algorithmic Bias: Lower = better (fair content promotion)
+        - Misinformation Spread: Lower = better (controlled misinformation)
+        **Interpretation**: Values closer to 1.0 indicate healthier platform behavior in each dimension.
+        """)
+
+        st.subheader("Comparative Health Metrics")
+        st.pyplot(plot_health_scores(bias_scores), use_container_width=False)
+
+        # Detailed breakdown
+        st.markdown("**Score Breakdown:**")
+        score_labels = ['Diversity', 'Polarization Control', 'Bias Control', 'Misinformation Control']
+        for label, score in zip(score_labels, bias_scores):
+            if score > 0.8:
+                st.markdown(f"- ✅ **{label}**: {score:.3f} (Excellent)")
+            elif score > 0.6:
+                st.markdown(f"- ⚠️ **{label}**: {score:.3f} (Moderate)")
+            else:
+                st.markdown(f"- ❌ **{label}**: {score:.3f} (Needs Attention)")
+
+        st.divider()
+
+        # RECOMMENDATIONS
+        st.header("💡 Recommendations")
+        recommendations = []
+
+        if overall < 60:
+            recommendations.append("🚨 **Critical**: Implement immediate content moderation measures")
+        if pol_res['polarization_score'] > 0.8:
+            recommendations.append("📊 **Polarization**: Promote diverse viewpoints and cross-cutting content")
+        if alg_bias['bias_score'] > 1.5:
+            recommendations.append("⚖️ **Algorithmic Bias**: Review recommendation algorithms for harmful content amplification")
+        if misinfo['amplification_ratio'] > 2.0:
+            recommendations.append("🚨 **Misinformation**: Strengthen fact-checking and misinformation detection systems")
+        if echo_res['diversity_stats']['mean'] < 0.3:
+            recommendations.append("🔄 **Echo Chambers**: Encourage users to engage with diverse content sources")
+
+        if recommendations:
+            for rec in recommendations:
+                st.markdown(rec)
+        else:
+            st.success("✅ Platform is performing well across all health metrics!")
+
     except Exception as e:
-        st.error(f"Error loading file: {str(e)}")
-        st.error("Please make sure your CSV file has the correct format.")
+        st.error(f"❌ Error loading file: {str(e)}")
+        st.error("Please make sure your CSV file has the required columns: user_id, timestamp, sentiment, likes, comments, shares, hashtags, category")
+        st.markdown("""
+        **Expected CSV format**:
+        - `user_id`: Unique identifier for users
+        - `timestamp`: Post timestamp (YYYY-MM-DD HH:MM:SS format)
+        - `sentiment`: Sentiment score (-1 to 1)
+        - `likes`: Number of likes (integer)
+        - `comments`: Number of comments (integer)  
+        - `shares`: Number of shares (integer)
+        - `hashtags`: Comma-separated hashtags
+        - `category`: Content category (Safe/Harmful/Misinformation)
+        """)
 else:
-    st.warning("Please upload your social_data.csv file to get started.")
+    st.warning("📂 Please upload your social_data.csv file to get started.")
+
+    # Create a more compact info section
+    with st.expander("📋 Expected Data Format", expanded=True):
+        st.markdown("""
+        **Required CSV columns:**
+        - `user_id`: Unique user identifier  
+        - `timestamp`: Post timestamp (YYYY-MM-DD HH:MM:SS)
+        - `sentiment`: Sentiment score (-1.0 to 1.0)  
+        - `likes, comments, shares`: Engagement metrics (integers)
+        - `hashtags`: Comma-separated hashtags
+        - `category`: Content type (Safe/Harmful/Misinformation)
+        """)
+        st.markdown("**Sample data format:**")
+        sample_data = {
+            'user_id': [1, 2, 3],
+            'timestamp': ['2024-01-01 10:00:00', '2024-01-01 11:00:00', '2024-01-01 12:00:00'],
+            'sentiment': [0.5, -0.3, 0.8],
+            'likes': [100, 50, 200],
+            'comments': [20, 10, 30],
+            'shares': [15, 5, 25],
+            'hashtags': ['tech,ai', 'politics,news', 'health,wellness'],
+            'category': ['Safe', 'Misinformation', 'Safe']
+        }
+        st.dataframe(pd.DataFrame(sample_data), use_container_width=True, height=150)
