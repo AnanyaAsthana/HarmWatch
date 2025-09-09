@@ -124,10 +124,10 @@ def analyze_network_structure(df):
         }
     else: return None
 
-# -------- SMALL AND TIDY CHARTS BELOW --------
+# -------- ALL PLOTS BELOW ARE SMALL, BALANCED, AND CLEAN --------
 
 def plot_sentiment_distribution(df):
-    fig, ax = plt.subplots(figsize=(3.5, 2))
+    fig, ax = plt.subplots(figsize=(3.2, 1.7))
     ax.hist(df['sentiment'], bins=30, alpha=0.7, edgecolor='black')
     ax.set_title('Sentiment Distribution', fontsize=9)
     ax.set_xlabel('Sentiment Score', fontsize=8)
@@ -142,7 +142,7 @@ def plot_engagement_by_category(df):
     df['total_engagement'] = df['likes'] + df['comments'] + df['shares']
     engagement_by_category = df.groupby('category')['total_engagement'].mean()
     colors = ['red' if cat in ['Harmful','Misinformation'] else 'green' for cat in engagement_by_category.index]
-    fig, ax = plt.subplots(figsize=(3.5, 2))
+    fig, ax = plt.subplots(figsize=(3.2, 1.7))
     ax.bar(engagement_by_category.index, engagement_by_category.values, color=colors, alpha=0.7)
     ax.set_title('Engagement by Category', fontsize=9)
     ax.set_ylabel('Avg Engagement', fontsize=8)
@@ -151,19 +151,27 @@ def plot_engagement_by_category(df):
     return fig
 
 def plot_temporal_content_spread(df):
-    df = df.copy(); df['timestamp']=pd.to_datetime(df['timestamp'])
+    df = df.copy()
+    df['timestamp'] = pd.to_datetime(df['timestamp'])
     hourly_data = df.groupby([df['timestamp'].dt.hour, 'category']).size().unstack(fill_value=0)
-    fig, ax = plt.subplots(figsize=(3.5, 2))
-    hourly_data.plot(ax=ax)
-    ax.set_title('Content Spread by Hour', fontsize=9)
-    ax.set_xlabel('Hour', fontsize=8)
-    ax.set_ylabel('Post Count', fontsize=8)
-    plt.tight_layout()
+    fig, ax = plt.subplots(figsize=(2.5, 1.6))  # small, balanced
+
+    # Color mapping
+    colors = {'Safe': '#4caf50', 'Harmful': '#f44336', 'Misinformation': '#ff9800'}
+    for col in hourly_data.columns:
+        ax.plot(hourly_data.index, hourly_data[col], label=col, color=colors.get(col, None), linewidth=1)
+    ax.set_title('Content Spread by Hour', fontsize=8, pad=3)
+    ax.set_xlabel('Hour', fontsize=7)
+    ax.set_ylabel('Post Count', fontsize=7)
+    ax.tick_params(axis='x', labelsize=7)
+    ax.tick_params(axis='y', labelsize=7)
+    ax.legend(fontsize=7, loc='upper right', frameon=True, framealpha=0.75, borderpad=0.5)
+    fig.tight_layout(pad=0.6)
     return fig
 
 def plot_user_content_diversity(df):
     user_diversity = df.groupby('user_id')['hashtags'].nunique() / df.groupby('user_id')['hashtags'].count()
-    fig, ax = plt.subplots(figsize=(3.5, 2))
+    fig, ax = plt.subplots(figsize=(3.2, 1.7))
     ax.hist(user_diversity, bins=20, alpha=0.7, edgecolor='black')
     ax.set_title('Content Diversity', fontsize=9)
     ax.set_xlabel('Diversity Score', fontsize=8)
@@ -175,7 +183,7 @@ def plot_user_content_diversity(df):
 
 def plot_category_distribution(df):
     category_counts = df['category'].value_counts()
-    fig, ax = plt.subplots(figsize=(2, 2))  # super compact!
+    fig, ax = plt.subplots(figsize=(1.6, 1.6))
     ax.pie(
         category_counts.values, 
         labels=category_counts.index, 
@@ -187,10 +195,10 @@ def plot_category_distribution(df):
     return fig
 
 def plot_health_scores(bias_scores):
-    fig, ax = plt.subplots(figsize=(3, 1.3))
+    fig, ax = plt.subplots(figsize=(2.4, 1.1))
     categories = ['Diversity', 'Polarization', 'Algorithmic Bias', 'Misinfo Spread']
     bars = ax.barh(categories, bias_scores, color=['#4682b4', '#ffa500', '#ee4444', '#8652ee'])
-    ax.set_title('Platform Health (0–1)', fontsize=9, pad=6)
+    ax.set_title('Platform Health (0–1)', fontsize=8, pad=3)
     ax.set_xlim(0, 1)
     ax.tick_params(axis='y', labelsize=7)
     ax.tick_params(axis='x', labelsize=7)
@@ -202,7 +210,7 @@ def plot_health_scores(bias_scores):
     return fig
 
 def plot_topic_polarization(topic_polarization):
-    fig, ax = plt.subplots(figsize=(3.5, 2))
+    fig, ax = plt.subplots(figsize=(3.2, 1.7))
     top_topics = topic_polarization.head(10)
     ax.barh(range(len(top_topics)), top_topics.values)
     ax.set_yticks(range(len(top_topics)))
@@ -213,7 +221,7 @@ def plot_topic_polarization(topic_polarization):
     return fig
 
 def plot_virality_by_category(virality_data):
-    fig, ax = plt.subplots(figsize=(3.5, 2))
+    fig, ax = plt.subplots(figsize=(3.2, 1.7))
     ax.bar(virality_data.index, virality_data.values)
     ax.set_title('Virality by Category', fontsize=9)
     ax.set_ylabel('Virality', fontsize=8)
