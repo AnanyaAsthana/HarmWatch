@@ -1,6 +1,6 @@
 import streamlit as st
 import pandas as pd
-from utils import (
+from utils1 import (
     analyze_echo_chambers, analyze_polarization, analyze_algorithmic_bias,
     analyze_misinformation, analyze_network_structure,
     plot_sentiment_distribution, plot_engagement_by_category,
