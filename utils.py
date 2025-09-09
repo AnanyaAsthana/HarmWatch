@@ -124,15 +124,16 @@ def analyze_network_structure(df):
         }
     else: return None
 
-# -------- SMALLER CHARTS BELOW --------
+# -------- SMALLER, NEAT CHARTS BELOW --------
 
 def plot_sentiment_distribution(df):
-    fig, ax = plt.subplots(figsize=(5, 3.5))
+    fig, ax = plt.subplots(figsize=(4.2, 2.7))
     ax.hist(df['sentiment'], bins=30, alpha=0.7, edgecolor='black')
-    ax.set_title('Sentiment Distribution (Polarization)')
-    ax.set_xlabel('Sentiment Score'); ax.set_ylabel('Frequency')
+    ax.set_title('Sentiment Distribution', fontsize=10)
+    ax.set_xlabel('Sentiment Score', fontsize=9)
+    ax.set_ylabel('Frequency', fontsize=9)
     ax.axvline(df['sentiment'].mean(), color='red', linestyle='--', label=f"Mean: {df['sentiment'].mean():.2f}")
-    ax.legend()
+    ax.legend(fontsize=8)
     plt.tight_layout()
     return fig
 
@@ -141,71 +142,76 @@ def plot_engagement_by_category(df):
     df['total_engagement'] = df['likes'] + df['comments'] + df['shares']
     engagement_by_category = df.groupby('category')['total_engagement'].mean()
     colors = ['red' if cat in ['Harmful','Misinformation'] else 'green' for cat in engagement_by_category.index]
-    fig, ax = plt.subplots(figsize=(5, 3.5))
+    fig, ax = plt.subplots(figsize=(4.2, 2.7))
     ax.bar(engagement_by_category.index, engagement_by_category.values, color=colors, alpha=0.7)
-    ax.set_title('Avg Engagement by Content Category')
-    ax.set_ylabel('Average Engagement')
-    ax.tick_params(axis='x', rotation=30)
+    ax.set_title('Engagement by Category', fontsize=10)
+    ax.set_ylabel('Avg Engagement', fontsize=9)
+    ax.tick_params(axis='x', labelsize=8, rotation=20)
     plt.tight_layout()
     return fig
 
 def plot_temporal_content_spread(df):
     df = df.copy(); df['timestamp']=pd.to_datetime(df['timestamp'])
     hourly_data = df.groupby([df['timestamp'].dt.hour, 'category']).size().unstack(fill_value=0)
-    fig, ax = plt.subplots(figsize=(5, 3.5))
+    fig, ax = plt.subplots(figsize=(4.2, 2.7))
     hourly_data.plot(ax=ax)
-    ax.set_title('Content Spread by Hour')
-    ax.set_xlabel('Hour of Day'); ax.set_ylabel('Post Count')
+    ax.set_title('Content Spread by Hour', fontsize=10)
+    ax.set_xlabel('Hour', fontsize=9)
+    ax.set_ylabel('Post Count', fontsize=9)
     plt.tight_layout()
     return fig
 
 def plot_user_content_diversity(df):
     user_diversity = df.groupby('user_id')['hashtags'].nunique() / df.groupby('user_id')['hashtags'].count()
-    fig, ax = plt.subplots(figsize=(5, 3.5))
+    fig, ax = plt.subplots(figsize=(4.2, 2.7))
     ax.hist(user_diversity, bins=20, alpha=0.7, edgecolor='black')
-    ax.set_title('User Content Diversity Scores')
-    ax.set_xlabel('Diversity Score (0-1)')
-    ax.set_ylabel('Users')
+    ax.set_title('User Content Diversity', fontsize=10)
+    ax.set_xlabel('Diversity Score', fontsize=9)
+    ax.set_ylabel('Users', fontsize=9)
     ax.axvline(user_diversity.mean(), color='red', linestyle='--', label=f'Mean: {user_diversity.mean():.2f}')
-    ax.legend()
+    ax.legend(fontsize=8)
     plt.tight_layout()
     return fig
 
 def plot_category_distribution(df):
     category_counts = df['category'].value_counts()
-    fig, ax = plt.subplots(figsize=(4, 4)) # smaller, more square pie
-    ax.pie(category_counts.values, labels=category_counts.index, autopct='%1.1f%%')
-    ax.set_title('Content Category Distribution')
+    fig, ax = plt.subplots(figsize=(3.8, 3.8)) # pie charts look best square and smaller
+    ax.pie(category_counts.values, labels=category_counts.index, autopct='%1.1f%%', textprops={'fontsize': 8})
+    ax.set_title('Category Distribution', fontsize=10)
     plt.tight_layout()
     return fig
 
 def plot_health_scores(bias_scores):
-    fig, ax = plt.subplots(figsize=(6, 2.8))
-    categories = ['Diversity', 'Polariz.', 'Alg. Bias', 'Misinfo']
-    ax.barh(categories, bias_scores, color=['#4682b4', '#ffa500', '#ee4444', '#8652ee'])
-    ax.set_title('Platform Health Scores (0–1)')
+    fig, ax = plt.subplots(figsize=(3.7, 1.7))
+    categories = ['Diversity', 'Polarization', 'Algorithmic Bias', 'Misinfo Spread']
+    bars = ax.barh(categories, bias_scores, color=['#4682b4', '#ffa500', '#ee4444', '#8652ee'])
+    ax.set_title('Platform Health (0–1)', fontsize=10, pad=8)
     ax.set_xlim(0, 1)
-    for i, score in enumerate(bias_scores):
-        ax.text(score+0.03, i, f'{score:.2f}', va='center')
-    plt.tight_layout()
+    ax.tick_params(axis='y', labelsize=9)
+    ax.tick_params(axis='x', labelsize=9)
+    for i, bar in enumerate(bars):
+        width = bar.get_width()
+        ax.text(width + 0.03, bar.get_y() + bar.get_height()/2, f'{width:.2f}',
+                va='center', ha='left', fontsize=9)
+    plt.tight_layout(pad=0.5)
     return fig
 
 def plot_topic_polarization(topic_polarization):
-    fig, ax = plt.subplots(figsize=(5.5, 3.5))
+    fig, ax = plt.subplots(figsize=(4.2, 2.7))
     top_topics = topic_polarization.head(10)
     ax.barh(range(len(top_topics)), top_topics.values)
-    ax.set_yticks(range(len(top_topics))); ax.set_yticklabels(top_topics.index)
-    ax.set_title('Most Polarized Topics')
-    ax.set_xlabel('Std. Deviation')
+    ax.set_yticks(range(len(top_topics))); ax.set_yticklabels(top_topics.index, fontsize=8)
+    ax.set_title('Most Polarized Topics', fontsize=10)
+    ax.set_xlabel('StdDev', fontsize=9)
     plt.tight_layout()
     return fig
 
 def plot_virality_by_category(virality_data):
-    fig, ax = plt.subplots(figsize=(5, 3.5))
+    fig, ax = plt.subplots(figsize=(4.2, 2.7))
     ax.bar(virality_data.index, virality_data.values)
-    ax.set_title('Virality by Category')
-    ax.set_ylabel('Virality (Comments+Shares/Likes)')
-    ax.tick_params(axis='x', rotation=30)
+    ax.set_title('Virality by Category', fontsize=10)
+    ax.set_ylabel('Virality', fontsize=9)
+    ax.tick_params(axis='x', labelsize=8, rotation=20)
     plt.tight_layout()
     return fig
 
@@ -221,3 +227,4 @@ def compute_overall_health_score(results):
         (1 - min((bias_score - 1) / 1.0, 1.0)) * 0.25 +
         (1 - min((misinfo_ratio - 1) / 2.0, 1.0)) * 0.25
     ) * 100
+
