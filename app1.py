@@ -182,11 +182,12 @@ if uploaded_file is not None:
         else:
             st.warning("⚠️ Network too small for meaningful analysis.")
         
+        modularity_text = f"{echo_res['modularity']:.3f}" if echo_res['modularity'] is not None else 'N/A'
         st.markdown(f"""
         **Analysis Results**:
         - Mean Diversity Score: **{echo_res['diversity_stats']['mean']:.3f}** (0-1, higher = more diverse)
         - Content Entropy: **{echo_res['content_entropy']:.3f}** (Higher = more varied content categories)
-        - Network Modularity: **{echo_res['modularity']:.3f if echo_res['modularity'] else 'N/A'}** (Higher = more distinct communities)
+        - Network Modularity: **{modularity_text}** (Higher = more distinct communities)
         """)
         
         st.divider()
