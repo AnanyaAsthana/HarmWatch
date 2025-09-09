@@ -281,13 +281,29 @@ if uploaded_file is not None:
         """)
 else:
     st.warning("📂 Please upload your social_data.csv file to get started.")
-    st.markdown("""
-    ### Expected Data Format
-    Your CSV should contain the following columns:
-    - **user_id**: Unique user identifier
-    - **timestamp**: When the content was posted
-    - **sentiment**: Sentiment score (-1.0 to 1.0)
-    - **likes, comments, shares**: Engagement metrics
-    - **hashtags**: Comma-separated hashtags
-    - **category**: Content category (Safe/Harmful/Misinformation)
-    """)
+    
+    # Create a more compact info section
+    with st.expander("📋 Expected Data Format", expanded=True):
+        st.markdown("""
+        **Required CSV columns:**
+        - `user_id`: Unique user identifier  
+        - `timestamp`: Post timestamp (YYYY-MM-DD HH:MM:SS)
+        - `sentiment`: Sentiment score (-1.0 to 1.0)  
+        - `likes, comments, shares`: Engagement metrics (integers)
+        - `hashtags`: Comma-separated hashtags
+        - `category`: Content type (Safe/Harmful/Misinformation)
+        """)
+        
+        # Add a sample data preview
+        st.markdown("**Sample data format:**")
+        sample_data = {
+            'user_id': [1, 2, 3],
+            'timestamp': ['2024-01-01 10:00:00', '2024-01-01 11:00:00', '2024-01-01 12:00:00'],
+            'sentiment': [0.5, -0.3, 0.8],
+            'likes': [100, 50, 200],
+            'comments': [20, 10, 30],
+            'shares': [15, 5, 25],
+            'hashtags': ['tech,ai', 'politics,news', 'health,wellness'],
+            'category': ['Safe', 'Misinformation', 'Safe']
+        }
+        st.dataframe(pd.DataFrame(sample_data), use_container_width=True, height=150)
